@@ -6363,5 +6363,20 @@
                 "youtube": false
             }
         }
+    },
+    {
+        "video_name": "badeda79-9d91-4955-b173-e481927a7c17.mp4",
+        "metadata": {
+            "title": "Stunning walk!",
+            "description": "A beautiful walk... #fashion #model",
+            "success_flags": {
+                "instagram_reel": true,
+                "instagram_story": false,
+                "facebook_reel": true,
+                "facebook_story": true,
+                "threads": false,
+                "youtube": false
+            }
+        }
     }
 ]
