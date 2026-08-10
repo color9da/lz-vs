@@ -1,0 +1,42 @@
+name: Refresh Threads Token
+
+on:
+  schedule:
+    - cron: '0 12 */30 * *' # Every 30 days
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-threads-token:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Refresh Threads Access Token
+        id: refresh
+        env:
+          CURRENT_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+        run: |
+          echo "Refreshing Threads access token..."
+          response=$(curl -s -X GET "https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token&access_token=${CURRENT_TOKEN}")
+          echo "Refresh response: $response"
+
+          new_token=$(echo "$response" | jq -r '.access_token // empty')
+          expires_in=$(echo "$response" | jq -r '.expires_in // empty')
+
+          if [ -z "$new_token" ]; then
+            echo "::error::Threads token refresh failed. Token may be expired or revoked."
+            exit 1
+          fi
+
+          echo "new_token=$new_token" >> "$GITHUB_OUTPUT"
+          echo "expires_in=$expires_in" >> "$GITHUB_OUTPUT"
+          echo "Refresh successful. New token expires in $expires_in seconds."
+
+      - name: Update GitHub Secret
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "${{ steps.refresh.outputs.new_token }}" | gh secret set THREADS_ACCESS_TOKEN --repo color9da/lz-vs
+          echo "THREADS_ACCESS_TOKEN secret updated successfully."
