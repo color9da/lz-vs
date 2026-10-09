@@ -1,8 +1,9 @@
 """
 Video Processor - Quality Enhancement (Video + Audio)
-1. Upscale video to 1080x1920 with quality enhancement
+1. Upscale video to 1080x1920 (Full HD 1080p) with crisp quality enhancement
 2. Remove watermark (bottom-right corner)
-3. ENHANCE AUDIO (normalize volume, improve clarity) - if audio exists
+3. ENHANCE AUDIO (normalize volume, improve clarity) or synthesize silent track for Meta compatibility
+4. Bitrate & size optimization: High quality CRF 20 + 6.5 Mbps maxrate cap to keep file ~8-15 MB (strictly under 30MB)
 """
 import os
 import subprocess
@@ -31,6 +32,7 @@ def process_single_video(video_path):
         print(f"Skipping {filename} - already processed")
         return out_path
 
+    # Probe resolution
     cmd_probe = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
@@ -45,6 +47,7 @@ def process_single_video(video_path):
         print(f"Failed to get resolution for {video_path}: {e}")
         return None
 
+    # Probe audio
     cmd_audio = [
         "ffprobe", "-v", "error",
         "-select_streams", "a:0",
@@ -67,17 +70,14 @@ def process_single_video(video_path):
     y_delogo = 1920 - h_delogo - 5
 
     print(f"Processing {filename}...")
-    print(f"  Upscaling to: 1080x1920")
+    print(f"  Target Resolution: 1080x1920 (Full HD 1080p)")
     print(f"  Removing watermark at: x={x_delogo}, y={y_delogo}, w={w_delogo}, h={h_delogo}")
-    print(f"  Video: ENHANCED (sharpen + clarity boost)")
+    print(f"  Video: 1080p Quality Enhanced (crisp sharpening + CRF 20 + 6.5M cap)")
+
+    vf_filter = f"[0:v]scale=1080:1920:flags=lanczos,unsharp=3:3:0.6:3:3:0.0,delogo=x={x_delogo}:y={y_delogo}:w={w_delogo}:h={h_delogo}[v]"
+
     if has_audio:
         print(f"  Audio: ENHANCED (normalize volume + improve clarity)")
-    else:
-        print(f"  Audio: No audio in original video")
-
-    vf_filter = f"[0:v]scale=1080:1920:flags=lanczos,unsharp=5:5:1.0:5:5:0.0,cas=0.7,delogo=x={x_delogo}:y={y_delogo}:w={w_delogo}:h={h_delogo}[v]"
-
-    if has_audio:
         af_filter = f"[0:a]loudnorm=I=-16:TP=-1.5:LRA=11,dynaudnorm=50:3:0.5[a]"
         
         cmd_ffmpeg = [
@@ -85,29 +85,38 @@ def process_single_video(video_path):
             "-filter_complex", f"{vf_filter};{af_filter}",
             "-map", "[v]",
             "-map", "[a]",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "16",
-            "-profile:v", "high", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-maxrate", "6500k", "-bufsize", "13000k",
+            "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
+            "-movflags", "+faststart",
             out_path
         ]
     else:
+        print(f"  Audio: Synthesizing silent AAC stereo track for Meta Reels compatibility")
         cmd_ffmpeg = [
             "ffmpeg", "-y", "-i", video_path,
+            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
             "-filter_complex", vf_filter,
             "-map", "[v]",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "16",
-            "-profile:v", "high", "-pix_fmt", "yuv420p",
-            "-an",
+            "-map", "1:a",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-maxrate", "6500k", "-bufsize", "13000k",
+            "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+            "-shortest",
+            "-movflags", "+faststart",
             out_path
         ]
 
-    print("  Processing... (enhancement in progress)")
+    print("  Encoding 1080p video...")
     result = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
 
     if result.returncode == 0:
-        print(f"✅ Saved: {out_path} (ENHANCED)")
+        first_size_mb = os.path.getsize(out_path) / (1024 * 1024)
+        print(f"✅ Initial 1080p pass saved: {out_path} ({first_size_mb:.2f} MB)")
         
-        # Step: Double the video duration by concatenating with itself
+        # Step: Double video duration by concatenating with itself
         print(f"\n  Doubling video duration (concatenating video with itself)...")
         doubled_path = os.path.join(output_dir, "doubled_" + filename)
         
@@ -118,26 +127,27 @@ def process_single_video(video_path):
             "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]",
             "-map", "[v]",
             "-map", "[a]",
-            "-c:v", "libx264", "-preset", "slow", "-crf", "16",
-            "-profile:v", "high", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-maxrate", "6500k", "-bufsize", "13000k",
+            "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
+            "-movflags", "+faststart",
             doubled_path
         ]
         
         concat_result = subprocess.run(cmd_concat, capture_output=True, text=True)
         
         if concat_result.returncode == 0:
-            # Remove the non-doubled version, keep only the doubled one
             os.remove(out_path)
-            # Rename doubled file to the original output name
             os.rename(doubled_path, out_path)
-            print(f"✅ Video doubled successfully (duration: 2x original)")
+            final_size_mb = os.path.getsize(out_path) / (1024 * 1024)
+            print(f"✅ Video doubled successfully (1080p Full HD, size: {final_size_mb:.2f} MB)")
             return out_path
         else:
-            print(f"⚠️  Doubling failed, keeping original: {concat_result.stderr[:200]}")
+            print(f"⚠️ Doubling failed, keeping initial 1080p file: {concat_result.stderr[:200]}")
             return out_path
     else:
-        print(f"❌ Failed: {result.stderr[:200]}")
+        print(f"❌ Failed: {result.stderr[:400]}")
         return None
 
 
@@ -148,20 +158,29 @@ def main():
         result = process_single_video(specific_video)
         if result:
             print("\n" + "=" * 60)
-            print("PROCESSING COMPLETE - VIDEO & AUDIO ENHANCED")
+            print(f"🎉 VIDEO PROCESSING COMPLETE: {result}")
             print("=" * 60)
         else:
+            print("\n❌ Video processing failed")
             sys.exit(1)
     else:
-        videos = [f for f in os.listdir(input_dir) if f.endswith('.mp4')]
-        print(f"Found {len(videos)} videos to process.")
+        if not os.path.exists(input_dir):
+            print(f"Input directory not found: {input_dir}")
+            sys.exit(1)
 
-        for filename in videos:
-            vid_path = os.path.join(input_dir, filename)
-            process_single_video(vid_path)
+        videos = [f for f in os.listdir(input_dir) if f.endswith(('.mp4', '.mov', '.avi'))]
+        if not videos:
+            print(f"No videos found in {input_dir}")
+            return
+
+        print(f"Found {len(videos)} video(s) to process\n")
+        for i, video in enumerate(videos, 1):
+            print(f"\n[{i}/{len(videos)}] Processing: {video}")
+            video_path = os.path.join(input_dir, video)
+            process_single_video(video_path)
 
         print("\n" + "=" * 60)
-        print("PROCESSING COMPLETE")
+        print("🎉 ALL VIDEOS PROCESSED")
         print("=" * 60)
 
 

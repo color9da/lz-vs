@@ -30,6 +30,14 @@ wheels/
 Videos/
 Processed_Videos/
 Published_Videos/
+output/
+*.mp4
+*.mov
+*.avi
+*.m4v
+*.webm
+lz_vs_short.mp4
+ig_*.mp4
 
 # Logs
 *.log
