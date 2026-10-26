@@ -9978,5 +9978,20 @@
                 "youtube": false
             }
         }
+    },
+    {
+        "video_name": "grok-a2dca7f8-80fc-4890-a00d-cee80461d80b-720p.mp4",
+        "metadata": {
+            "title": "Stunning walk!",
+            "description": "A beautiful walk... #fashion #model",
+            "success_flags": {
+                "instagram_reel": false,
+                "instagram_story": false,
+                "facebook_reel": true,
+                "facebook_story": true,
+                "threads": true,
+                "youtube": false
+            }
+        }
     }
 ]
